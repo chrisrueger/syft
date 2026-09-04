@@ -151,8 +151,12 @@ func (j *archiveParser) parse(ctx context.Context, parentPkg *pkg.Package) ([]pk
 		return nil, nil, err
 	}
 
+	// load any license enrichment data embedded in the archive (e.g. .syft-licenses.json)
+	archiveEnrichmentMap := j.loadArchiveLicenseEnrichment(ctx)
+
 	if mainPkg != nil {
 		finalizePackage(mainPkg)
+		applyArchiveLicenseEnrichment(mainPkg, archiveEnrichmentMap)
 		pkgs = append(pkgs, *mainPkg)
 
 		if parentPkg != nil {
@@ -168,6 +172,7 @@ func (j *archiveParser) parse(ctx context.Context, parentPkg *pkg.Package) ([]pk
 		auxPkg := &auxPkgs[i]
 
 		finalizePackage(auxPkg)
+		applyArchiveLicenseEnrichment(auxPkg, archiveEnrichmentMap)
 		pkgs = append(pkgs, *auxPkg)
 
 		if mainPkg != nil {

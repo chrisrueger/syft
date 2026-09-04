@@ -189,6 +189,7 @@ func (c *CreateSBOMConfig) makeTaskGroups(src source.Description) ([][]task.Task
 	// generate package and file tasks based on the configuration
 	environmentTasks := c.environmentTasks()
 	scopeTasks := c.scopeTasks()
+	licenseEnrichmentTasks := c.licenseEnrichmentTasks()
 	relationshipsTasks := c.relationshipTasks(src)
 	unknownTasks := c.unknownsTasks()
 	osFeatureDetectionTasks := c.osFeatureDetectionTasks()
@@ -209,6 +210,12 @@ func (c *CreateSBOMConfig) makeTaskGroups(src source.Description) ([][]task.Task
 	// all scope work must be done after all nodes (files and packages) have been cataloged and before the relationship
 	if len(scopeTasks) > 0 {
 		taskGroups = append(taskGroups, scopeTasks)
+	}
+
+	// license enrichment supplements packages lacking license information using .syft-licenses.json files;
+	// must run after package cataloging (to have PURLs) and before relationship tasks (to keep IDs consistent).
+	if len(licenseEnrichmentTasks) > 0 {
+		taskGroups = append(taskGroups, licenseEnrichmentTasks)
 	}
 
 	// all relationship work must be done after all nodes (files and packages) have been cataloged
@@ -411,6 +418,16 @@ func (c *CreateSBOMConfig) scopeTasks() []task.Task {
 		if t := task.NewDeepSquashedScopeCleanupTask(); t != nil {
 			tsks = append(tsks, t)
 		}
+	}
+	return tsks
+}
+
+// licenseEnrichmentTasks returns the set of tasks that supplement packages lacking license information
+// using .syft-licenses.json enrichment files found during scanning.
+func (c *CreateSBOMConfig) licenseEnrichmentTasks() []task.Task {
+	var tsks []task.Task
+	if t := task.NewLicenseEnrichmentTask(); t != nil {
+		tsks = append(tsks, t)
 	}
 	return tsks
 }
