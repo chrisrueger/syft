@@ -2,70 +2,26 @@ package java
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"strings"
 
 	intFile "github.com/anchore/syft/internal/file"
+	"github.com/anchore/syft/internal/licenseenrichment"
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/pkg"
 )
 
-// SyftLicensesFilename is the name of the enrichment file that syft will look for in archives and scan directories.
-const SyftLicensesFilename = ".syft-licenses.json"
-
-// syftLicenseEnrichmentEntry represents a single entry in a .syft-licenses.json enrichment file.
-type syftLicenseEnrichmentEntry struct {
-	PURL     string                  `json:"purl"`
-	Licenses []syftLicenseEnrichment `json:"licenses"`
-}
-
-// syftLicenseEnrichment represents a single license declared in a .syft-licenses.json enrichment file.
-type syftLicenseEnrichment struct {
-	Name string `json:"name"`
-	URL  string `json:"url,omitempty"`
-}
-
-// parseSyftLicensesEnrichment parses a .syft-licenses.json file from an io.Reader and returns a
-// map of PURL → []pkg.License that can be used to supplement packages lacking license information.
-func parseSyftLicensesEnrichment(ctx context.Context, location file.Location, r io.Reader) (map[string][]pkg.License, error) {
-	var entries []syftLicenseEnrichmentEntry
-	if err := json.NewDecoder(r).Decode(&entries); err != nil {
-		return nil, fmt.Errorf("unable to parse %s: %w", SyftLicensesFilename, err)
-	}
-
-	result := make(map[string][]pkg.License)
-	for _, entry := range entries {
-		if entry.PURL == "" {
-			continue
-		}
-		var lics []pkg.License
-		for _, l := range entry.Licenses {
-			lic := pkg.NewLicenseFromFieldsWithContext(ctx, l.Name, l.URL, &location)
-			if !lic.Empty() {
-				lics = append(lics, lic)
-			}
-		}
-		if len(lics) > 0 {
-			result[entry.PURL] = lics
-		}
-	}
-	return result, nil
-}
-
 // loadArchiveLicenseEnrichment looks for a .syft-licenses.json file inside the current archive and,
 // if found, parses it and returns the resulting PURL → licenses map.
 func (j *archiveParser) loadArchiveLicenseEnrichment(ctx context.Context) map[string][]pkg.License {
-	matches := j.fileManifest.GlobMatch(false, "**/"+SyftLicensesFilename, SyftLicensesFilename)
+	matches := j.fileManifest.GlobMatch(false, "**/"+licenseenrichment.Filename, licenseenrichment.Filename)
 	if len(matches) == 0 {
 		return nil
 	}
 
 	contents, err := intFile.ContentsFromZip(ctx, j.archivePath, matches...)
 	if err != nil {
-		log.WithFields("error", err, "archive", j.location.Path()).Debug("unable to extract " + SyftLicensesFilename + " from archive")
+		log.WithFields("error", err, "archive", j.location.Path()).Debug("unable to extract " + licenseenrichment.Filename + " from archive")
 		return nil
 	}
 
@@ -79,9 +35,9 @@ func (j *archiveParser) loadArchiveLicenseEnrichment(ctx context.Context) map[st
 		enrichmentLocation := file.NewLocationFromCoordinates(j.location.Coordinates)
 		enrichmentLocation.AccessPath = j.location.Path() + ":" + match
 
-		enrichmentMap, err := parseSyftLicensesEnrichment(ctx, enrichmentLocation, strings.NewReader(content))
+		enrichmentMap, err := licenseenrichment.ParseFile(ctx, enrichmentLocation, strings.NewReader(content))
 		if err != nil {
-			log.WithFields("error", err, "path", match).Debug("failed to parse " + SyftLicensesFilename + " from archive")
+			log.WithFields("error", err, "path", match).Debug("failed to parse " + licenseenrichment.Filename + " from archive")
 			continue
 		}
 		for purl, lics := range enrichmentMap {

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/anchore/syft/internal/licenseenrichment"
 	"github.com/anchore/syft/syft/file"
 	"github.com/anchore/syft/syft/pkg"
 )
@@ -66,7 +67,7 @@ func Test_parseSyftLicensesEnrichment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := parseSyftLicensesEnrichment(context.Background(), loc, strings.NewReader(tt.input))
+			result, err := licenseenrichment.ParseFile(context.Background(), loc, strings.NewReader(tt.input))
 			if tt.wantErr {
 				require.Error(t, err)
 				return

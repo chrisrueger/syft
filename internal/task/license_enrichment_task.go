@@ -2,11 +2,10 @@ package task
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 
 	"github.com/anchore/syft/internal"
+	"github.com/anchore/syft/internal/licenseenrichment"
 	"github.com/anchore/syft/internal/log"
 	"github.com/anchore/syft/internal/sbomsync"
 	"github.com/anchore/syft/syft/artifact"
@@ -15,19 +14,6 @@ import (
 	"github.com/anchore/syft/syft/pkg"
 	"github.com/anchore/syft/syft/sbom"
 )
-
-// syftLicensesFilename is the enrichment file that syft looks for in scanned directories and archives.
-const syftLicensesFilename = ".syft-licenses.json"
-
-type licenseEnrichmentEntry struct {
-	PURL     string                   `json:"purl"`
-	Licenses []licenseEnrichmentValue `json:"licenses"`
-}
-
-type licenseEnrichmentValue struct {
-	Name string `json:"name"`
-	URL  string `json:"url,omitempty"`
-}
 
 // NewLicenseEnrichmentTask returns a Task that reads .syft-licenses.json files from the scan target
 // and supplements any package that has no license information with the declared licenses when the
@@ -51,51 +37,35 @@ func NewLicenseEnrichmentTask() Task {
 // loadDirectoryLicenseEnrichments finds all .syft-licenses.json files reachable via the resolver,
 // parses them, and merges their entries into a single PURL → []pkg.License map.
 func loadDirectoryLicenseEnrichments(ctx context.Context, resolver file.Resolver) (map[string][]pkg.License, error) {
-	locations, err := resolver.FilesByGlob("**/" + syftLicensesFilename)
+	// search both at the root and in any subdirectory so no enrichment file is missed
+	locations, err := resolver.FilesByGlob(
+		licenseenrichment.Filename,
+		"**/"+licenseenrichment.Filename,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to search for %s: %w", syftLicensesFilename, err)
+		return nil, fmt.Errorf("unable to search for %s: %w", licenseenrichment.Filename, err)
 	}
 
 	result := make(map[string][]pkg.License)
 	for _, loc := range locations {
 		rc, err := resolver.FileContentsByLocation(loc)
 		if err != nil || rc == nil {
-			log.WithFields("path", loc.Path(), "error", err).Debug("unable to read " + syftLicensesFilename)
+			log.WithFields("path", loc.Path(), "error", err).Debug("unable to read " + licenseenrichment.Filename)
 			continue
 		}
 
-		entries, err := decodeLicenseEnrichmentFile(rc)
+		enrichmentMap, err := licenseenrichment.ParseFile(ctx, loc, rc)
 		internal.CloseAndLogError(rc, loc.Path())
 		if err != nil {
-			log.WithFields("path", loc.Path(), "error", err).Debug("failed to parse " + syftLicensesFilename)
+			log.WithFields("path", loc.Path(), "error", err).Debug("failed to parse " + licenseenrichment.Filename)
 			continue
 		}
 
-		for _, entry := range entries {
-			if entry.PURL == "" {
-				continue
-			}
-			var lics []pkg.License
-			for _, l := range entry.Licenses {
-				lic := pkg.NewLicenseFromFieldsWithContext(ctx, l.Name, l.URL, &loc)
-				if !lic.Empty() {
-					lics = append(lics, lic)
-				}
-			}
-			if len(lics) > 0 {
-				result[entry.PURL] = lics
-			}
+		for purl, lics := range enrichmentMap {
+			result[purl] = lics
 		}
 	}
 	return result, nil
-}
-
-func decodeLicenseEnrichmentFile(r io.Reader) ([]licenseEnrichmentEntry, error) {
-	var entries []licenseEnrichmentEntry
-	if err := json.NewDecoder(r).Decode(&entries); err != nil {
-		return nil, fmt.Errorf("unable to decode %s: %w", syftLicensesFilename, err)
-	}
-	return entries, nil
 }
 
 // applyDirectoryLicenseEnrichment atomically updates packages in the SBOM whose PURL matches
@@ -126,7 +96,7 @@ func applyDirectoryLicenseEnrichment(enrichmentMap map[string][]pkg.License, bui
 			oldToNew[oldID] = enriched
 
 			log.WithFields("package", p.String(), "purl", p.PURL, "licenses", len(lics)).
-				Debug("enriching package licenses from " + syftLicensesFilename)
+				Debug("enriching package licenses from " + licenseenrichment.Filename)
 		}
 
 		if len(oldToNew) == 0 {
