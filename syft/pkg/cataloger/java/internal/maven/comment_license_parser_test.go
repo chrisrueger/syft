@@ -25,6 +25,8 @@ func Test_licensesFromComments(t *testing.T) {
 	require.Len(t, licenses, 1)
 	require.NotNil(t, licenses[0].Name)
 	require.Equal(t, "Apache-2.0", *licenses[0].Name)
+	require.NotNil(t, licenses[0].URL)
+	require.Equal(t, "http://www.apache.org/licenses/LICENSE-2.0", *licenses[0].URL)
 }
 
 func Test_licensesFromComments_ignoresNonLicenseURLs(t *testing.T) {

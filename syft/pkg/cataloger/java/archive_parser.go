@@ -810,7 +810,7 @@ func pomProjectByParentPath(ctx context.Context, entries archiveEntries, locatio
 		if pom == nil {
 			continue
 		}
-		if pom.Licenses == nil || len(*pom.Licenses) == 0 {
+		if (pom.Licenses == nil || len(*pom.Licenses) == 0) && pom.Parent == nil {
 			if licenses, err := maven.ExtractLicensesFromComments(ctx, fileContents); err == nil && len(licenses) > 0 {
 				pom.Licenses = &licenses
 			}
